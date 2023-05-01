@@ -1,0 +1,804 @@
+#!/bin/sh
+# IOS VUT FIT - First Project
+# Richard Huska : xhuska03
+
+export POSIXLY_CORRECT=yes
+export LC_ALL=C
+if [ -z "$MOLE_RC" ];then
+  echo "NO MOLE_RC"
+  exit 1
+else
+  touch "$MOLE_RC"
+fi
+if [ -n "$VISUAL" ]; then
+  editor="VISUAL"
+elif [ -n "$EDITOR" ]; then
+  editor="$EDITOR"
+else
+  editor="vi"
+fi
+call_help(){
+  echo " USAGE "
+  echo " mole -h - Writes the usage, help "
+  echo " mole [-g GROUP] FILE - FILE will be opened. If -g is on, the open will be assigned to GROUP(can be existing or new)"
+  echo " mole [-m] [FILTERS] [DIRECTORY] - select a file from a specified directory based on certain conditions. If no directory is specified, it assumes the current directory. If multiple files have been edited in the directory, it selects the file that was edited last. If the "-m" argument is used, it selects the file that has been edited the most. If multiple files have the same maximum number of edits, it can select any of them. Filters can also be used to further refine the file selection. If no file has been edited in the directory or no file matches the filters, an error occurs."
+  echo " mole list [FILTERS] [DIRECTORY] - script displays a list of files that have been opened (edited) in the specified directory using the script. If no directory is specified, it assumes the current directory. The list of files can be filtered using FILTERS."
+  echo " FILTERS -a [DATE] -b [DATE] " 
+  exit 0
+}
+secret_log(){
+  LOG_DIR="$HOME/.mole"
+  LOG_FILE="log_$(whoami)_$(date +"%Y-%m-%d_%H-%M-%S")"
+  
+  
+  if [ ! -d "$LOG_DIR" ]; then
+    mkdir "$LOG_DIR"
+  fi
+  touch "$LOG_DIR/$LOG_FILE"
+  if [ -n "$date_before" ] && [ -n "$date_after" ]; then
+    
+    if [ -z "$directory" ]; then
+      file_paths=$(awk -F';' -v after="$date_after" -v before="$date_before" '$2 > after && $2 < before {print $1}' | sort -u -df)
+    else
+      if [ "$r_" = 1 ]; then
+        file_paths=$(awk -F';' -v after="$date_after" -v before="$date_before" '$2 > after && $2 < before {print $1}' | grep -E "^$directory" | sort -u -df)
+      else
+        file_paths=$(awk -F';' -v after="$date_after" -v before="$date_before" '$2 > after && $2 < before {print $1}' | grep -E "^($(echo "$directory" | sed 's/,/|/g' | sed 's/\//\\\//g'))\/[^/]+$" | sort -u -df)
+      fi
+    fi
+    
+    for file_path in $file_paths; do
+      datetimes=$(grep "^$file_path;" "$MOLE_RC" | awk -F';' -v after="$date_after" -v before="$date_before" '$2 > after && $2 < before {print $2}' | sort -u -df | paste -sd';')
+      echo "$file_path;$datetimes" >> "$LOG_DIR/$LOG_FILE"
+    done
+
+
+  elif [ -n "$date_before" ]; then
+
+    if [ -z "$directory" ]; then
+      file_paths=$(awk -F';' -v date="$date_before" '$2 < date {print $1}' "$MOLE_RC" | sort -u -df)
+    else
+      if [ "$r_" = 1 ]; then
+        
+        file_paths=$(awk -F';' -v date="$date_before" '$2 < date {print $1}' "$MOLE_RC" | grep "^$directory" | sort -u -df)
+        
+      else
+        file_paths=$(awk -F';' -v date="$date_before" '$2 < date {print $1}' "$MOLE_RC" | grep -E "^($(echo "$directory" | sed 's/,/|/g' | sed 's/\//\\\//g'))\/[^/]+$" | sort -u -df)
+      fi
+    fi
+
+
+
+    for file_path in $file_paths; do
+      datetimes=$(grep "^$file_path;" "$MOLE_RC" | awk -F';' -v date="$date_before" '$2 < date {print $2}' | sort -u -df | paste -sd';')
+      echo "$file_path;$datetimes" >> "$LOG_DIR/$LOG_FILE"
+    done
+
+    
+  elif [ -n "$date_after" ]; then #awk -F';' -v date="$date_before" '$2 < date {print $1}' "$MOLE_RC" | sort -u -df)
+  
+    if [ -z "$directory" ]; then
+      if [ "$r_" = 1 ]; then
+        file_paths=$(awk -F';' -v date="$date_after" '$2 > date {print $1}' "$MOLE_RC" | grep "^$directory" | sort -u -df)
+      else 
+        file_paths=$(awk -F';' -v date="$date_after" '$2 > date {print $1}' "$MOLE_RC" | sort -u -df)
+      fi
+    else
+      if [ "$r_" = 1 ]; then
+        file_paths=$(awk -F';' -v date="$date_after" '$2 > date {print $1}' "$MOLE_RC" | grep "^$directory" | sort -u -df)
+      else
+        file_paths=$(awk -F';' -v date="$date_after" '$2 > date {print $1}' "$MOLE_RC" | grep -E "^($(echo "$directory" | sed 's/,/|/g' | sed 's/\//\\\//g'))\/[^/]+$" | sort -u -df)
+      fi
+    fi
+
+    for file_path in $file_paths; do
+      datetimes=$(grep "^$file_path;" "$MOLE_RC" | awk -F';' -v date="$date_after" '$2 > date {print $2}' | sort -u -df | paste -sd';')
+      echo "$file_path;$datetimes" >> "$LOG_DIR/$LOG_FILE"
+    done
+
+  else
+    if [ -z "$directory" ]; then
+      file_paths=$(cut -d';' -f1 "$MOLE_RC" | grep -E "^$directory" | sort -df | uniq)
+    else
+      
+      file_paths=$(cut -d';' -f1 "$MOLE_RC" | grep -E "^($(echo "$directory" | sed 's/,/|/g' | sed 's/\//\\\//g'))\/[^/]+$" | sort -df | uniq)
+    fi
+    for file_path in $file_paths; do
+      datetimes=$(grep "^$file_path;" "$MOLE_RC" | cut -d ';' -f2 | sort -u -df | paste -sd';')
+      echo "$file_path;$datetimes" >> "$LOG_DIR/$LOG_FILE"
+    done
+
+
+  fi
+  # Loop through the file paths and extract the datetimes for each file
+ 
+  bzip2 "$LOG_DIR/$LOG_FILE"
+}
+latest(){
+  if [ -z "$directory" ]; then
+    directory="$(dirname "$(realpath "$0")")"
+  fi
+  if [ "$b_" = 1 ] && [ "$a_" = 1 ]; then
+    if [ "$r_" = 1 ]; then
+      files=$(grep "$directory" "$MOLE_RC" | awk -v before="$before_date" -v after="$after_date" -F';' '$2 > after && $2 < before {print $0}' | sort -r -t ';' -k 2 | cut -d ';' -f 1)
+    else
+      files=$(grep -E "^$directory/[^/]+;.*" "$MOLE_RC" | awk -v before="$before_date" -v after="$after_date" -F';' '$2 > after && $2 < before {print $0}' | sort -r -t ';' -k 2 | cut -d ';' -f 1)
+    fi
+  elif [ "$b_" = 1 ]; then
+    if [ "$r_" = 1 ]; then
+      files=$(grep "$directory" "$MOLE_RC" | awk -v before="$before_date" -F ';' '$2 < before {print $0}' | sort -r -t ';' -k 2 | cut -d ';' -f 1)
+    else
+      files=$(grep -E "^$directory/[^/]+;.*" "$MOLE_RC" | awk -v before="$before_date" -F ';' '$2 < before {print $0}' | sort -r -t ';' -k 2 | cut -d ';' -f 1)
+    fi
+  elif [ "$a_" = 1 ]; then
+    if [ "$r_" = 1 ]; then
+      files=$(grep "$directory" "$MOLE_RC" | awk -v after="$after_date" -F ';' '$2 >= after {print $0}' | sort -r -t ';' -k 2 | cut -d ';' -f 1)
+    else
+      files=$(grep -E "^$directory/[^/]+;.*" "$MOLE_RC" | awk -v after="$after_date" -F ';' '$2 >= after {print $0}' | sort -r -t ';' -k 2 | cut -d ';' -f 1)
+    fi
+  else
+    if [ "$r_" = 1 ]; then
+      files=$(grep "$directory" "$MOLE_RC" | sort -r -t ';' -k 2 | cut -d ';' -f 1)
+    else
+      files=$(grep -E "^$directory/[^/]+;.*" "$MOLE_RC" | sort -r -t ';' -k 2 | cut -d ';' -f 1)
+    fi
+  fi
+    if [ -z "$files" ]; then
+      echo "No File"
+      exit 1
+    fi
+  for file in $files; do
+    if [ -e "$file" ]; then
+      most_recent_file="$file"
+      break
+    fi
+  done
+  $editor "$most_recent_file"
+  path=$(realpath "$most_recent_file")
+  echo "$path;$(date +'%Y-%m-%d_%H-%M-%S')" >> "$MOLE_RC"
+  exit 0
+}
+list(){
+  if [ "$list_a" = 1 ] && [ "$list_b" = 1 ]; then
+    if [ "$r_" = 1 ]; then
+      files=$(grep "$directory" "$MOLE_RC" | awk -v before="$date_before" -v after="$date_after" -F';' '$2 > after && $2 < before {print $1}' | sort -df | uniq)
+    else
+      files=$(grep -E "^$directory/[^/]+;.*" "$MOLE_RC" | awk -v before="$date_before" -v after="$date_after" -F';' '$2 > after && $2 < before {print $1}' | sort -df | uniq)
+    fi
+  elif [ "$list_b" = 1 ]; then
+    if [ "$r_" = 1 ]; then
+      files=$(grep "$directory" "$MOLE_RC" | awk -v date="$date_before" -F ';' '$2 < date {print $1}' | sort -df | uniq)
+    else
+      files=$(grep -E "^$directory/[^/]+;.*" "$MOLE_RC" | awk -v date="$date_before" -F ';' '$2 < date {print $1}' | sort -df | uniq)
+    fi
+  elif [ "$list_a" = 1 ]; then
+    if [ "$r_" = 1 ]; then
+      files=$(grep "$directory" "$MOLE_RC" | awk -v date="$date_after" -F ';' '$2 > date {print $1}' | sort -df | uniq)
+    else
+      files=$(grep -E "^$directory/[^/]+;.*" "$MOLE_RC" | awk -v date="$date_after" -F ';' '$2 > date {print $1}' | sort -df | uniq)
+    fi
+  else
+    if [ "$r_" = 1 ]; then
+      files=$(grep "$directory" "$MOLE_RC" | cut -d';' -f 1 | sort -df | uniq)
+    else
+      files=$(grep -E "^$directory/[^/]+;.*" "$MOLE_RC" | cut -d';' -f 1 | sort -df | uniq)
+    fi
+  fi
+  max_len=0
+  for file_path in $files; do
+    filename=$(basename "$file_path")
+    length=${#filename}
+    if [ "$length" -gt "$max_len" ]; then
+      max_len=$length
+    fi
+  done
+  for file in $files; do
+    if [ "$list_a" = 1 ] && [ "$list_b" = 1 ]; then
+      groups=$(awk -v file="$file" -v t="$date_after" -v before="$date_before" -F';' '$1 == file && $2 > t && $2 < before {print $3}' "$MOLE_RC" | sort | uniq)
+    elif [ "$list_a" = 1 ]; then
+      groups=$(awk -v file="$file" -v t="$date_after" -F';' '$1 == file && $2 > t {print $3}' "$MOLE_RC" | sort | uniq)
+
+    elif [ "$list_b" = 1 ]; then
+      groups=$(awk -v file="$file" -v t="$date_before" -F';' '$1 == file && $2 < t {print $3}' "$MOLE_RC" | sort | uniq)
+    else
+      groups=$(grep -E "^$file;" "$MOLE_RC" | cut -d';' -f 3 | sort | uniq)
+    fi
+    first=1
+    printf '%-*s ' $((max_len+1)) "$(basename "$file"):"
+    if [ -z "$groups" ]; then
+      printf '%s' "-"
+    fi
+    for group in $groups; do
+      if [ "$first" -eq 1 ]; then
+        printf '%s' "$group"
+        first=0
+      else
+        printf ',%s' "$group"
+        first=1
+      fi
+    done
+    printf '\n'
+  done
+  exit 0
+}
+
+list_g(){
+
+  if [ "$list_a" = 1 ]  && [ "$list_b" = 1 ]; then
+    if [ "$r_" = 1 ]; then
+      files=$(grep -E ".*;.*;($(echo "$group" | sed 's/,/|/g'))$" "$MOLE_RC" | grep "^$directory" |  awk -v before="$date_before" -v after="$date_after" -F';' '$2 > after && $2 < before {print $0}' | cut -d';' -f 1 | sort -df | uniq)
+    else
+      files=$(grep -E "^$directory/[^/]+;.*;($(echo "$group" | sed 's/,/|/g'))$" "$MOLE_RC" | awk -v before="$date_before" -v after="$date_after" -F';' '$2 > after && $2 < before {print $0}' | cut -d';' -f 1 | sort -df | uniq)
+    fi
+  elif [ "$list_b" = 1 ]; then
+    if [ "$r_" = 1 ]; then
+    files=$(grep -E ".*;.*;($(echo "$group" | sed 's/,/|/g'))$" "$MOLE_RC" | awk -v before="$date_before" -F';' '$2 < before {print $0}' | grep "^$directory" | cut -d';' -f 1 | sort -df | uniq)
+    else
+    files=$(grep -E "^$directory/[^/]+;.*;($(echo "$group" | sed 's/,/|/g'))$" "$MOLE_RC" | awk -v before="$date_before" -F';' '$2 < before {print $0}' | cut -d';' -f 1 | sort -df | uniq)
+    fi
+  elif [ "$list_a" = 1 ]; then
+    if [ "$r_" = 1 ]; then
+    
+      files=$(grep -E "^.*;.*;($(echo "$group" | sed 's/,/|/g'))$" "$MOLE_RC" | awk -v after="$date_after" -F';' '$2 > after {print $0}' | grep "^$directory" |  cut -d';' -f 1 | sort -df | uniq)
+    else
+      files=$(grep -E "^$directory/[^/]+;.*;($(echo "$group" | sed 's/,/|/g'))$" "$MOLE_RC" | awk -v after="$date_after" -F';' '$2 > after {print $0}' | cut -d';' -f 1 | sort -df | uniq)
+    fi
+  else
+    if [ "$r_" = 1 ]; then
+      files=$(grep -E ".*;.*;($(echo "$group" | sed 's/,/|/g'))$" "$MOLE_RC" | grep "^$directory" | cut -d';' -f 1 | sort -df | uniq)
+    else
+      files=$(grep -E "^$directory/[^/]+;.*;($(echo "$group" | sed 's/,/|/g'))$" "$MOLE_RC" | cut -d';' -f 1 | sort -df | uniq)
+    fi
+  fi
+  
+  max_len=0
+  for file_path in $files; do
+    filename=$(basename "$file_path")
+    length=${#filename}
+    if [ "$length" -gt "$max_len" ]; then
+      max_len=$length
+    fi
+  done
+  
+  for file in $files; do
+    first=1
+    groups=""
+    printf '%-*s ' $((max_len+1)) "$(basename "$file"):"
+
+    for g in $(echo "$group" | tr ',' ' '); do
+      
+      
+      cur_groups="$(grep -E "^$file;" "$MOLE_RC" | awk -v group="$g" -F';' '$3 == group {print $3}' | cut -d';' -f 3 | sort | uniq)"
+      if [ -z "$cur_groups" ]; then
+        continue
+      fi
+      if [ "$first" -eq 1 ]; then
+        groups="$cur_groups" 
+        first=0
+      else
+        if [ -n "$cur_groups" ]; then
+          groups="$groups,$cur_groups"
+        fi
+      fi
+      
+
+    done
+  
+    printf '%s\n' "$groups"
+  done
+  exit 0
+}
+
+m_g(){
+  if [ "$a_" = 1 ]; then 
+    if [ "$r_" = 1 ]; then
+      files=$(grep -E "^$directory.*;.*;($(echo "$group" | sed 's/,/|/g'))$" "$MOLE_RC" | awk -v after="$after_date" -F';' '$2 > after {print $1}' | sort | uniq -c | sort -nr | awk '{print $2}')
+    else
+      files=$(grep -E "^$directory/[^/]+;.*;($(echo "$group" | sed 's/,/|/g'))$" "$MOLE_RC" | awk -v after="$after_date" -F';' '$2 > after {print $1}' | sort | uniq -c | sort -nr | awk '{print $2}')
+    fi
+    for file in $files; do
+    if [ -e "$file" ]; then
+      most_frequent_file="$file"
+      
+      break
+    fi
+    done
+    if [ -z "$most_frequent_file" ]; then
+      echo "No file"
+      exit 1
+    fi
+    path=$(realpath "$most_frequent_file")
+    echo "$path;$(date +'%Y-%m-%d_%H-%M-%S')" >> "$MOLE_RC"
+    $editor "$most_frequent_file"
+    exit $?
+  elif [ "$b_" = 1 ]; then
+    if [ "$r_" = 1 ]; then
+      files=$(grep -E "^$directory.*;.*;($(echo "$group" | sed 's/,/|/g'))$" "$MOLE_RC" | awk -v before="$before_date" -F';' '$2 < before {print $1}' | sort | uniq -c | sort -nr | awk '{print $2}')
+    else
+      files=$(grep -E "^$directory/[^/]+;.*;($(echo "$group" | sed 's/,/|/g'))$" "$MOLE_RC" | awk -v before="$before_date" -F';' '$2 < before {print $1}' | sort | uniq -c | sort -nr | awk '{print $2}')
+    fi
+    for file in $files; do
+      if [ -e "$file" ]; then
+        most_frequent_file="$file"
+        break
+      fi
+    done
+    
+    if [ -z "$most_frequent_file" ]; then
+      echo "No file"
+      exit 1
+    fi
+    path=$(realpath "$most_frequent_file")
+    echo "$path;$(date +'%Y-%m-%d_%H-%M-%S')" >> "$MOLE_RC"
+    $editor "$most_frequent_file"
+    exit $?
+  else
+    if [ "$r_" = 1 ]; then
+      files=$(grep -E "^$directory.*;.*;($(echo "$group" | sed 's/,/|/g'))$" "$MOLE_RC" | cut -d';' -f1 | sort | uniq -c | sort -nr | awk '{print $2}')
+    else
+      files=$(grep -E "^$directory/[^/]+;.*;($(echo "$group" | sed 's/,/|/g'))$" "$MOLE_RC" | cut -d';' -f1 | sort | uniq -c | sort -nr | awk '{print $2}')
+    fi
+    for file in $files; do
+    if [ -e "$file" ]; then
+        most_frequent_file="$file"
+        break
+    fi
+    done
+    if [ -z "$most_frequent_file" ]; then
+      echo "No filos"
+      exit 1
+    fi
+    path=$(realpath "$most_frequent_file")
+    echo "$path;$(date +'%Y-%m-%d_%H-%M-%S')" >> "$MOLE_RC"
+    $editor "$most_frequent_file"
+    exit $?
+  fi
+}
+m_g_a_b(){
+  if [ "$r_" = 1 ]; then
+    files=$(grep -E "^$directory.*;.*;($(echo "$group" | sed 's/,/|/g'))$" "$MOLE_RC" | awk -v before="$before_date" -v after="$after_date" -F';' '$2 > after && $2 < before {print $1}' | sort | uniq -c | sort -nr | awk '{print $2}')
+  else
+    files=$(grep -E "^$directory/[^/]+;.*;($(echo "$group" | sed 's/,/|/g'))$" "$MOLE_RC" | awk -v before="$before_date" -v after="$after_date" -F';' '$2 > after && $2 < before {print $1}' | sort | uniq -c | sort -nr | awk '{print $2}')
+  fi
+  for file in $files; do
+    if [ -e "$file" ]; then
+      most_frequent_file="$file"
+      break
+    fi
+  done
+  if [ -z "$most_frequent_file" ]; then
+    echo "No file"
+    exit 1
+  fi
+  
+  path=$(realpath "$most_frequent_file")
+  echo "$path;$(date +'%Y-%m-%d_%H-%M-%S')" >> "$MOLE_RC"
+  $editor "$most_frequent_file"
+  exit $?
+  
+}
+m(){
+if [ "$a_" = 1 ]; then
+  if [ "$r_" = 1 ]; then
+    files=$(grep "^$directory" | awk -v after="$after_date" -F';' '$2 > after {print $1}' | sort | uniq -c | sort -nr | awk '{print $2}') ###ECHO
+  else
+    files=$(grep -E "^$directory/[^/]+;.*" "$MOLE_RC" | awk -v after="$after_date" -F';' '$2 > after {print $1}' | sort | uniq -c | sort -nr | awk '{print $2}')
+  fi
+  for file in $files; do
+    if [ -e "$file" ]; then
+        most_frequent_file="$file"
+        break
+    fi
+  done
+  path=$(realpath "$most_frequent_file")
+  echo "$path;$(date +'%Y-%m-%d_%H-%M-%S')" >> "$MOLE_RC"
+  $editor "$most_frequent_file"
+  exit $?
+elif [ "$b_" = 1 ]; then
+  if [ "$r_" = 1 ]; then
+    files=$(awk -v before="$before_date" -F';' '$2 < before {print $1}' "$MOLE_RC" | sort | uniq -c | sort -nr | awk '{print $2}')
+  else
+    files=$(grep -E "^$directory/[^/]+;.*" "$MOLE_RC" | awk -v before="$before_date" -F';' '$2 < before {print $1}' | sort | uniq -c | sort -nr | awk '{print $2}')
+  fi
+  for file in $files; do
+    if [ -e "$file" ]; then
+        most_frequent_file="$file"
+        break
+    fi
+  done
+  
+  path=$(realpath "$most_frequent_file")
+  echo "$path;$(date +'%Y-%m-%d_%H-%M-%S')" >> "$MOLE_RC"
+  
+  $editor "$most_frequent_file"
+  exit $?
+  
+else
+  if [ "$r_" = 1 ]; then
+    files=$(grep "^$directory" "$MOLE_RC" | cut -d';' -f1 | sort | uniq -c | sort -nr | awk '{print $2}')
+  else
+    files=$(grep -E "^$directory/[^/]+;.*" "$MOLE_RC" | cut -d';' -f1 | sort | uniq -c | sort -nr | awk '{print $2}')
+  fi
+  for file in $files; do
+    if [ -e "$file" ]; then
+        most_frequent_file="$file"
+        break
+    fi
+  done
+  if [ -z "$most_frequent_file" ]; then
+    exit 1
+  fi
+  path=$(realpath "$most_frequent_file")
+  echo "$path;$(date +'%Y-%m-%d_%H-%M-%S')" >> "$MOLE_RC"
+  $editor "$most_frequent_file"
+  exit $?
+fi
+}
+m_a_b(){
+  if [ "$r_" = 1 ]; then
+    files=$(grep -E "^$directory.*;.*" "$MOLE_RC" | awk -v before="$before_date" -v after="$after_date" -F';' '$2 < before && $2 > after {print $1}' | sort | uniq -c | sort -nr | awk '{print $2}')
+  else
+    files=$(grep -E "^$directory/[^/]+;.*" "$MOLE_RC" | awk -v before="$before_date" -v after="$after_date" -F';' '$2 < before && $2 > after {print $1}' | sort | uniq -c | sort -nr | awk '{print $2}')
+  fi
+  for file in $files; do
+    if [ -e "$file" ]; then
+      most_frequent_file="$file"
+      break
+    fi
+  done
+  if [ -z "$most_frequent_file" ]; then
+    echo "No files"
+    exit 1
+  fi
+  path=$(realpath "$most_frequent_file")
+  echo "$path;$(date +'%Y-%m-%d_%H-%M-%S')" >> "$MOLE_RC"
+  $editor "$most_frequent_file"
+  exit $?
+}
+
+mole_g(){
+  
+  if [ "$a_" = 1 ] && [ "$b_" = 1 ]; then
+    if [ "$r_" = 1 ]; then
+      files=$(grep -E "^$directory.*;.*;($(echo "$group" | sed 's/,/|/g'))$" "$MOLE_RC" | awk -v before="$before_date" -v after="$after_date" -F';' '$2 > after && $2 < before {print $0}' | sort -r -t ';' -k 2 | cut -d ';' -f 1)
+    else
+      files=$(grep -E "^$directory/[^/]+;.*;($(echo "$group" | sed 's/,/|/g'))$" "$MOLE_RC" | awk -v before="$before_date" -v after="$after_date" -F';' '$2 > after && $2 < before {print $0}' | sort -r -t ';' -k 2 | cut -d ';' -f 1)
+    fi
+  elif [ "$b_" = 1 ]; then
+    if [ "$r_" = 1 ]; then
+      files=$(grep -E "^$directory.*;.*;($(echo "$group" | sed 's/,/|/g'))$" "$MOLE_RC" | awk -v before="$before_date" -F';' '$2 < before {print $0}' | sort -r -t ';' -k 2 | cut -d ';' -f 1)
+    else
+      files=$(grep -E "^$directory/[^/]+;.*;($(echo "$group" | sed 's/,/|/g'))$" "$MOLE_RC" | awk -v before="$before_date" -F';' '$2 < before {print $0}' | sort -r -t ';' -k 2 | cut -d ';' -f 1)
+    fi
+  elif [ "$a_" = 1 ]; then
+    if [ "$r_" = 1 ]; then
+      files=$(grep -E "^$directory.*;.*;($(echo "$group" | sed 's/,/|/g'))$" "$MOLE_RC" | awk -v after="$after_date" -F';' '$2 > after {print $0}' | sort -r -t ';' -k 2 | cut -d ';' -f 1)
+    else
+      files=$(grep -E "^$directory/[^/]+;.*;($(echo "$group" | sed 's/,/|/g'))$" "$MOLE_RC" | awk -v after="$after_date" -F';' '$2 > after {print $0}' | sort -r -t ';' -k 2 | cut -d ';' -f 1)
+    fi
+  else
+    if [ "$r_" = 1 ]; then
+      files=$(grep -E "^$directory/[^/]+;.*;($(echo "$group" | sed 's/,/|/g'))$" "$MOLE_RC" | sort -r -t ';' -k 2 | cut -d ';' -f 1)
+    else
+      files=$(grep -E "^$directory/[^/]+;.*;($(echo "$group" | sed 's/,/|/g'))$" "$MOLE_RC" | sort -r -t ';' -k 2 | cut -d ';' -f 1)
+    fi
+  fi
+  for file in $files; do
+    if [ -e "$file" ]; then
+      latest_file="$file"
+      break
+    fi
+  done
+  if [ -z "$latest_file" ]; then
+    echo "No file"
+    exit 1
+  else
+    $editor "$latest_file"
+    path=$(realpath "$latest_file")
+    echo "$path;$(date +'%Y-%m-%d_%H-%M-%S')" >> "$MOLE_RC"
+    
+    exit 0
+  fi
+}
+g(){
+
+
+  $editor "$file"
+  path=$(realpath "$file")
+  echo "$path;$(date +'%Y-%m-%d_%H-%M-%S');$group" >> "$MOLE_RC"
+  exit 0
+
+}
+
+
+args=0
+list_a=0
+list_b=0
+list_g=0
+a_=0
+b_=0
+g_=0
+m_=0
+r_=0
+
+if [ "$1" = "secret-log" ]; then
+  args=2
+fi
+while getopts ":mg:a:b:rh" opt; do
+  case $opt in
+    h)
+      call_help
+      ;;
+    g)
+      args=1
+      group="$OPTARG"
+      
+      g_=1
+      ;;
+    m)
+      m_=1
+      args=1
+      ;;
+    a)
+      after_date=$OPTARG
+      args=1
+      a_=1
+      ;;
+
+    b)
+      before_date=$OPTARG
+      args=1
+      b_=1
+      ;;
+    r)
+      r_=1
+      ;;
+    \?)
+      echo "Invalid option: -$OPTARG" >&2
+      exit 1
+      ;;
+    :)
+      echo "Option -$OPTARG requires an argument." >&2
+      exit 1
+      ;;
+  esac
+done
+shift $((OPTIND - 1))
+if [ "$args" = 1 ]; then
+  if [ "$m_" = 1 ] || [ "$a_" = 1 ] || [ "$b_" = 1 ]; then
+    if [ -n "$1" ]; then
+      if [ -d "$1" ]; then
+        directory=$1
+      else
+        echo "No directory"
+        exit 1
+      fi
+    else
+      directory="$(dirname "$(realpath "$0")")"
+    fi
+  elif [ "$g_" = 1 ]; then
+    if [ -z "$1" ]; then
+
+      directory="$(dirname "$(realpath "$0")")"
+      mole_g
+      exit
+    fi
+  fi
+  if [ "$m_" = 1 ]; then 
+    if [ "$g_" = 1 ]; then
+      if [ "$a_" = 1 ]; then
+        if [ "$b_" = 1 ]; then
+          
+          m_g_a_b
+        else
+          
+          m_g
+        fi
+      elif [ "$b_" = 1 ]; then
+        
+        m_g
+      else
+        
+        m_g
+      fi
+    elif [ "$a_" = 1 ]; then
+      if [ "$b_" = 1 ]; then 
+        
+        m_a_b
+      else
+        m
+        
+      fi
+    elif [ "$b_" = 1 ]; then
+      
+      m
+    else
+      
+      m
+    fi
+  elif [ "$g_" = 1 ]; then
+    if [ "$a_" = 1 ]; then
+      if [ "$b_" = 1 ]; then
+        
+        mole_g
+      else
+        
+        mole_g
+      fi
+    elif [ "$b_" = 1 ]; then
+      
+      mole_g
+    else
+      if [ -d "$1" ]; then
+        
+        directory="$1"
+        mole_g
+      else
+        
+        file="$1"
+        g
+      fi
+    fi
+  elif [ "$a_" = 1 ]; then
+    if [ "$b_" = 1 ]; then
+      
+      latest
+    else
+      
+      latest
+    fi
+  elif [ "$b_" = 1 ]; then
+    
+    latest
+  fi
+fi
+
+
+if [ $args = 0 ]; then
+
+  if [ "$1" = "list" ]; then
+  
+    noOPT=0
+    shift
+    while getopts "g:a:b:r" opt; do
+      case $opt in
+      g)
+        noOPT=1
+        group=$OPTARG
+        list_g=1
+        ;;
+      a)
+        noOPT=1
+        date_after=$OPTARG
+        list_a=1
+        ;;
+      b)
+        date_before=$OPTARG
+        noOPT=1
+        list_b=1
+        ;;
+      r)
+        r_=1
+        ;;
+      \?)
+        echo "Invalid option: -$OPTARG" >&2
+        exit 1
+        ;;
+      :)
+        echo "Option -$OPTARG requires an argument." >&2
+        exit 1
+        ;;
+      esac
+    done
+    shift $((OPTIND - 1))
+    
+    if [ -n "$1" ]; then
+      if [ -d "$1" ]; then
+        directory="$1"
+      else
+        echo "No directory"
+        exit 1
+      fi
+    else
+      directory="$(dirname "$(realpath "$0")")"
+    fi
+
+
+    if [ "$list_g" = 1 ]; then
+      if [ "$list_a" = 1 ]; then
+        if [ "$list_b" = 1 ]; then
+          
+          list_g
+        else
+          
+          list_g
+        fi
+      elif [ "$list_b" = 1 ]; then
+        
+        list_g
+      else 
+        list_g
+        
+      fi
+    elif [ "$list_a" = 1 ]; then
+      if [ "$list_b" = 1 ]; then
+        
+        list
+      else
+        
+        list
+      fi
+    elif [ "$list_b" = 1 ]; then
+      list
+    fi
+
+
+    if [ "$noOPT" = 0 ]; then
+      list
+    fi
+  else
+
+    if [ -n "$1" ]; then
+      if [ -d "$1" ]; then
+        directory=$1
+        
+        latest
+      else
+        file=$1
+        $editor "$file"
+        path=$(realpath "$file")
+        echo "$path;$(date +'%Y-%m-%d_%H-%M-%S')" >> "$MOLE_RC"
+        exit 0
+      fi
+    else
+      directory="$(dirname "$(realpath "$0")")"
+    fi
+    latest
+  fi
+elif [ "$args" = 2 ]; then
+  shift
+  while getopts "a:b:r" opt; do
+    case $opt in
+
+      a)
+        
+        date_after="$OPTARG"
+      ;;
+      b)
+      
+        date_before="$OPTARG"
+      ;;
+      r)
+        r_=1
+        ;;
+      \?)
+        echo "Invalid option: -$OPTARG" >&2
+        exit 1
+        ;;
+      :)
+        echo "Option -$OPTARG requires an argument." >&2
+        exit 1
+        ;;
+    esac
+  done
+  shift $((OPTIND - 1))
+  first=1
+  while [ $# -gt 0 ]; do
+    
+    if [ $first = 1 ]; then
+      directory="$1"
+      first=0
+      shift
+    else
+      directory="${directory},$1"
+      shift
+    fi
+  done
+
+  secret_log
+fi
+
+
+
+
+
