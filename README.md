@@ -30,18 +30,6 @@ Pokud bude při použití přepínače -m nalezeno více souborů se stejným ma
 Výběr souboru může být dále ovlivněn zadanými filtry FILTERS.
 Pokud nebyl v daném adresáři otevřen (editován) ještě žádný soubor, případně žádný soubor nevyhovuje zadaným filtrům, jedná se o chybu.
 mole list [FILTERS] [DIRECTORY] – Skript zobrazí seznam souborů, které byly v daném adresáři otevřeny (editovány) pomocí skriptu.
-Pokud nebyl zadán adresář, předpokládá se aktuální adresář.
-Seznam souborů může být filtrován pomocí FILTERS.
-Seznam souborů bude lexikograficky seřazen a každý soubor bude uveden na samostatném řádku.
-Každý řádek bude mít formát FILENAME:<INDENT>GROUP_1,GROUP_2,..., kde FILENAME je jméno souboru (i s jeho případnými příponami), <INDENT> je počet mezer potřebných k zarovnání a GROUP_* jsou názvy skupin, u kterých je soubor evidován.
-Seznam skupin bude lexikograficky seřazen.
-Pokud budou skupiny upřesněny pomocí přepínače -g (viz sekce FILTRY), uvažujte při výpisu souborů a skupin pouze záznamy patřící do těchto skupin.
-Pokud soubor nepatří do žádné skupiny, bude namísto seznamu skupin vypsán pouze znak -.
-Minimální počet mezer použitých k zarovnání (INDENT) je jedna. Každý řádek bude zarovnán tak, aby seznam skupin začínal na stejné pozici. Tedy např:
-FILE1:  grp1,grp2
-FILE10: grp1,grp3
-FILE:   -
 mole secret-log [-b DATE] [-a DATE] [DIRECTORY1 [DIRECTORY2 [...]]] – Skript za účelem dopadení krtka vytvoří tajný komprimovaný log s informacemi o souborech otevřených (editovaných) skrze skript mole.
 Pokud byly zadány adresáře, tajný log bude obsahovat záznamy o otevřených (editovaných) souborech pouze z těchto adresářů. Neexistující adresáře nebo adresáře bez záznamů budou ignorovány.
-Pokud nebyl zadán žádný adresář, tajný log bude obsahovat záznamy ze všech evidovaných adresářů.
 Otevřené (editované) soubory, které mají být v tajném logu zaznamenány, je možné dále omezit pomocí filtrů -a a -b (viz níže).
